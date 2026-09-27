@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\pmore\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\1\\\\\\\\claude\\\\\\\\c--Users-pmore-meal-prep-cli\\\\\\\\6d6a52aa-3ade-4787-a768-cf27a0bcdd94\\\\\\\\tasks\\\\\\\\btz3ak2yv.output\")",
+      "Bash(tail -30 \"C:\\\\\\\\Users\\\\\\\\pmore\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\1\\\\\\\\claude\\\\\\\\c--Users-pmore-meal-prep-cli\\\\\\\\6d6a52aa-3ade-4787-a768-cf27a0bcdd94\\\\\\\\tasks\\\\\\\\btz3ak2yv.output\")",
+      "Bash(curl -s http://localhost:5175/dishes/new)",
+      "Bash(curl -s \"http://localhost:5175/suggest?mode=pantry\")",
+      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\pmore\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\1\\\\\\\\claude\\\\\\\\c--Users-pmore-meal-prep-cli\\\\\\\\62b6f701-fcce-4d9a-b52a-570fb37155e4\\\\\\\\tasks\\\\\\\\berltq4wq.output\")",
+      "Bash(curl -s -o /dev/null -w \"/ %{http_code}\\\\n/dishes %{http_code}\\\\n/plan %{http_code}\\\\n/grocery %{http_code}\\\\n/suggest %{http_code}\\\\n\" http://localhost:5176/ http://localhost:5176/dishes http://localhost:5176/plan http://localhost:5176/grocery http://localhost:5176/suggest)",
+      "Bash(curl -s -o /dev/null -w \"/grocery %{http_code}\\\\n\" http://localhost:5176/grocery)",
+      "Bash(curl -s -o /dev/null -w \"/dishes/new %{http_code}\\\\n\" http://localhost:5176/dishes/new)",
+      "Bash(curl -s -o /dev/null -w \"POST /resources/dish-from-name \\(no key\\) %{http_code}\\\\n\" -X POST -d \"name=Pad Thai\" http://localhost:5176/resources/dish-from-name)"
+    ]
+  }
+}
