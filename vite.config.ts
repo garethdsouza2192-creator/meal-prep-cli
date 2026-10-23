@@ -12,7 +12,7 @@ export default defineConfig({
       "127.0.0.1",
       "192.168.86.25",
       "100.69.205.98",
-      "pratikshas-macbook-air.taila018c5.ts.net",
+      "meal-prep-cli.gareth-dsouza-2192.workers.dev",
     ],
   },
   resolve: {

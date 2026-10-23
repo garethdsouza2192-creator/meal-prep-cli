@@ -8,8 +8,10 @@ const planMeals = new Map<string, PlanMeal>(); // key: `${date}|${slot}`
 
 const planKey = (date: string, slot: MealSlot) => `${date}|${slot}`;
 
-const SEED_DISHES: DishInput[] = [
+// Changed from DishInput[] to Dish[] and added a hardcoded 'id' to each
+const SEED_DISHES: Dish[] = [
   {
+    id: "4fa54228-4443-4e34-b20f-b4b9b9a67425",
     name: "Banana Pancakes",
     cuisine: "American",
     meal_types: ["breakfast"],
@@ -27,6 +29,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "2ccf7663-d14a-4467-85b4-d758079633e4",
     name: "Cheesy Scrambled Eggs",
     cuisine: "American",
     meal_types: ["breakfast"],
@@ -42,6 +45,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "e084777e-cb99-4d6d-8b01-5278c772c3b2",
     name: "Aloo Paratha",
     cuisine: "Indian",
     meal_types: ["breakfast"],
@@ -59,6 +63,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "a66fbc08-25d2-43bb-a4e9-9154a4f8d5bb",
     name: "Mac and Cheese",
     cuisine: "American",
     meal_types: ["lunch", "dinner"],
@@ -75,6 +80,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "b2721ab9-968b-493e-a129-eb7ba9830206",
     name: "Veggie Quesadilla",
     cuisine: "Mexican",
     meal_types: ["lunch"],
@@ -91,6 +97,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "f9e31d45-6622-491c-99d8-79532822a104",
     name: "Mini Margherita Pizzas",
     cuisine: "Italian",
     meal_types: ["lunch", "dinner"],
@@ -106,6 +113,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "4c04dc60-9831-4171-8bc4-d75607315579",
     name: "Spaghetti and Meatballs",
     cuisine: "Italian",
     meal_types: ["dinner"],
@@ -124,6 +132,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "24b7a1e0-79ea-4029-a1b4-2b6fb6e6d194",
     name: "Butter Chicken",
     cuisine: "Indian",
     meal_types: ["dinner"],
@@ -142,6 +151,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "d855791c-b5f7-4148-af7e-3cecf39dd4f8",
     name: "Chicken Teriyaki Rice Bowl",
     cuisine: "Japanese",
     meal_types: ["lunch", "dinner"],
@@ -160,6 +170,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "f7f18cc5-7e5f-463f-91cb-d227b233a011",
     name: "Veggie Fried Rice",
     cuisine: "Chinese",
     meal_types: ["lunch", "dinner"],
@@ -178,6 +189,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "9e1fa122-8d77-4951-872e-336fc167da51",
     name: "Rajma Chawal",
     cuisine: "Indian",
     meal_types: ["lunch", "dinner"],
@@ -200,6 +212,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "7e1b5f25-83c9-49ba-8a8b-185d2634e565",
     name: "Avocado Toast",
     cuisine: "American",
     meal_types: ["breakfast"],
@@ -216,6 +229,7 @@ const SEED_DISHES: DishInput[] = [
     ],
   },
   {
+    id: "b3b28df6-b8db-4e14-8745-612b7a86f7b1",
     name: "French Toast",
     cuisine: "French",
     meal_types: ["breakfast"],
@@ -237,8 +251,8 @@ const SEED_DISHES: DishInput[] = [
 
 function initializeSeeds() {
   if (dishes.size === 0) {
-    for (const input of SEED_DISHES) {
-      const dish: Dish = { id: randomUUID(), ...input };
+    for (const dish of SEED_DISHES) {
+      // id is now already part of the object, so no randomUUID() needed here
       dishes.set(dish.id, dish);
     }
   }
@@ -247,24 +261,29 @@ function initializeSeeds() {
 export const demoStore = {
   // ---- dishes ----
   listDishes(): Dish[] {
+    initializeSeeds();
     return Array.from(dishes.values()).sort((a, b) => a.name.localeCompare(b.name));
   },
 
   getDish(id: string): Dish | null {
+    initializeSeeds(); // Added safety initialization
     return dishes.get(id) ?? null;
   },
 
   countDishes(): number {
+    initializeSeeds(); // Added safety initialization
     return dishes.size;
   },
 
   createDish(input: DishInput): Dish {
-    const dish: Dish = { id: randomUUID(), ...input };
+    initializeSeeds(); // Added safety initialization
+    const dish: Dish = { id: randomUUID(), ...input }; // Safe here since it runs on a user request
     dishes.set(dish.id, dish);
     return dish;
   },
 
   updateDish(id: string, input: DishInput): Dish | null {
+    initializeSeeds(); // Added safety initialization
     const existing = dishes.get(id);
     if (!existing) return null;
     const updated: Dish = { ...existing, ...input };
@@ -273,6 +292,7 @@ export const demoStore = {
   },
 
   deleteDish(id: string): boolean {
+    initializeSeeds(); // Added safety initialization
     for (const [key, m] of planMeals) {
       if (m.dish_id === id) planMeals.delete(key);
     }
@@ -292,7 +312,7 @@ export const demoStore = {
     const meal: PlanMeal = existing
       ? { ...existing, dish_id, status: "planned", cooked_at: null }
       : {
-          id: randomUUID(),
+          id: randomUUID(), // Safe here since it runs on a user request
           meal_date: date,
           meal_slot: slot,
           dish_id,
@@ -313,7 +333,7 @@ export const demoStore = {
     const updated: PlanMeal = {
       ...meal,
       status: cooked ? "cooked" : "planned",
-      cooked_at: cooked ? new Date().toISOString() : null,
+      cooked_at: cooked ? new Date().toISOString() : null, // Safe here since it runs on a user request
     };
     planMeals.set(planKey(date, slot), updated);
     return updated;
