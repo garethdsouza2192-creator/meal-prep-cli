@@ -235,10 +235,12 @@ const SEED_DISHES: DishInput[] = [
   },
 ];
 
-if (dishes.size === 0) {
-  for (const input of SEED_DISHES) {
-    const dish: Dish = { id: randomUUID(), ...input };
-    dishes.set(dish.id, dish);
+function initializeSeeds() {
+  if (dishes.size === 0) {
+    for (const input of SEED_DISHES) {
+      const dish: Dish = { id: randomUUID(), ...input };
+      dishes.set(dish.id, dish);
+    }
   }
 }
 
