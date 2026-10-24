@@ -1,5 +1,5 @@
 export const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
-export type MealSlot = (typeof MEAL_SLOTS)[number];
+export type MealSlot = string;
 
 export const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
