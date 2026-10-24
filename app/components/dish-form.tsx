@@ -15,6 +15,8 @@ type Props = {
   onAutoFill?: (name: string) => void;
   autoFilling?: boolean;
   autoFillError?: string | null;
+  action?: string;
+  onSubmit?: (event: React.FormEvent<HTMLFormElement>) => void;
 };
 
 export function DishForm({
@@ -24,13 +26,15 @@ export function DishForm({
   onAutoFill,
   autoFilling,
   autoFillError,
+  action,
+  onSubmit,
 }: Props) {
   const nav = useNavigation();
   const submitting = nav.state === "submitting";
   const nameRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Form method="post" className="flex flex-col gap-5">
+    <Form method="post" action={action} onSubmit={onSubmit} className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <Label htmlFor="name">Name</Label>
         <div className="flex flex-col gap-2 sm:flex-row">

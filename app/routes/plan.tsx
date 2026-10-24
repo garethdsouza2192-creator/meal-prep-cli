@@ -3,6 +3,7 @@ import { Form, Link, useActionData, useNavigation } from "react-router";
 import { BookOpen, ChevronLeft, ShoppingCart, Wand2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { isFeatureEnabled } from "~/lib/feature-flags";
+import { DishForm } from "~/components/dish-form";
 import { EmptyState } from "~/components/empty-state";
 import { PageHeader } from "~/components/page-header";
 import {
@@ -13,7 +14,7 @@ import {
   weekDates,
   type MealSlot,
 } from "~/lib/dates";
-import type { Dish } from "~/lib/dishes";
+import { MEAL_TYPES, type Dish } from "~/lib/dishes";
 import { listDishes } from "~/lib/dishes.server";
 import type { PlanMeal } from "~/lib/plan";
 import {
@@ -53,6 +54,25 @@ function normalizeMealSlotList(slots: unknown[]): string[] {
   );
 
   return cleaned.length > 0 ? cleaned : DEFAULT_MEAL_SLOTS;
+}
+
+function getMealTypePriority(mealType: string): number {
+  const index = MEAL_TYPES.indexOf(mealType as (typeof MEAL_TYPES)[number]);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+function sortDishesByMealType(dishes: Dish[]): Dish[] {
+  return [...dishes].sort((a, b) => {
+    const aPriority = a.meal_types.length
+      ? Math.min(...a.meal_types.map((mealType) => getMealTypePriority(mealType)))
+      : Number.MAX_SAFE_INTEGER;
+    const bPriority = b.meal_types.length
+      ? Math.min(...b.meal_types.map((mealType) => getMealTypePriority(mealType)))
+      : Number.MAX_SAFE_INTEGER;
+
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export function meta(_: Route.MetaArgs) {
@@ -184,6 +204,7 @@ function getAssignedDishIds(meal: PlanMeal | null): string[] {
 
 export default function Plan({ loaderData }: Route.ComponentProps) {
   const { dishes, plan, mealSlotConfig, weekStart, weekLabel, days, todayIso } = loaderData as LoaderData;
+  const orderedDishes = sortDishesByMealType(dishes);
   const actionData = useActionData<typeof action>() as
     | GenerateResult
     | { ok?: true; error?: string }
@@ -511,7 +532,7 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
         >
           <aside
             className={[
-              "overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10 xl:sticky xl:top-6",
+              "hidden overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10 xl:sticky xl:top-6 xl:block",
               isDishLibraryCollapsed ? "h-[56px] w-[56px] justify-self-start p-2" : "w-full justify-self-start p-2 xl:w-[300px]",
             ].join(" ")}
           >
@@ -555,7 +576,7 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
 
             {!isDishLibraryCollapsed && (
               <div className="max-h-[680px] space-y-2 overflow-y-auto pr-1">
-                {dishes.map((dish) => (
+                {orderedDishes.map((dish) => (
                   <div
                     key={dish.id}
                     draggable
@@ -575,17 +596,7 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-medium text-foreground">{dish.name}</div>
-                        {dish.cuisine && (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {dish.cuisine}
-                          </div>
-                        )}
                       </div>
-                      {dish.prep_time_min && (
-                        <span className="rounded-full bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground ring-1 ring-foreground/10">
-                          {dish.prep_time_min} min
-                        </span>
-                      )}
                     </div>
                     {dish.meal_types.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -686,8 +697,77 @@ type CellProps = {
 function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: CellProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddDishOpen, setIsAddDishOpen] = useState(false);
+  const [isNewDishDrawerOpen, setIsNewDishDrawerOpen] = useState(false);
+  const [dishSearch, setDishSearch] = useState("");
+  const [newDishError, setNewDishError] = useState<string | null>(null);
   const assignedDishIds = getAssignedDishIds(meal);
-  const cooked = meal?.status === "cooked";
+
+  const filteredDishes = sortDishesByMealType(
+    dishes.filter((dish) => {
+      const query = dishSearch.trim().toLowerCase();
+      if (!query) return true;
+
+      return (
+        dish.name.toLowerCase().includes(query) ||
+        dish.cuisine?.toLowerCase().includes(query) ||
+        dish.meal_types.some((mealType) => mealType.toLowerCase().includes(query))
+      );
+    }),
+  );
+
+  const addDish = async (dishId: string) => {
+    if (!dishId || isSubmitting) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const nextDishIds = Array.from(new Set([...assignedDishIds, dishId]));
+      const formData = new FormData();
+      formData.set("intent", "set");
+      formData.set("meal_date", date);
+      formData.set("meal_slot", slot);
+      for (const id of nextDishIds) formData.append("dish_ids", id);
+
+      const response = await fetch("/plan", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      }
+    } finally {
+      setIsSubmitting(false);
+      setIsAddDishOpen(false);
+      setDishSearch("");
+    }
+  };
+
+  const handleCreateDish = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    try {
+      const response = await fetch("/dishes/new", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+
+      if (response.ok) {
+        setIsNewDishDrawerOpen(false);
+        setNewDishError(null);
+        window.location.reload();
+        return;
+      }
+
+      setNewDishError("Unable to save the dish. Please check the form and try again.");
+    } catch {
+      setNewDishError("Unable to save the dish right now.");
+    }
+  };
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -750,7 +830,7 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
       className={
-        "relative min-h-[118px] rounded-xl border bg-muted/40 p-3 transition " +
+        "relative min-h-[80px] rounded-xl border bg-muted/40 p-3 transition " +
         (isDragOver ? "border-violet-400 bg-violet-50 dark:bg-violet-950/20" : "border-foreground/5")
       }
     >
@@ -782,8 +862,84 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
       </div>
 
       {assignedDishIds.length === 0 ? (
-        <div className="mt-3 flex h-[56px] items-center justify-center rounded-lg border border-dashed border-foreground/10 text-sm text-muted-foreground">
-          Drag a dish here
+        <div className="mt-3">
+          {!isAddDishOpen ? (
+            <button
+              type="button"
+              onClick={() => setIsAddDishOpen(true)}
+              className="flex max-h-[120px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-foreground/10 bg-background/40 px-3 py-4 text-center text-muted-foreground transition hover:border-violet-300 hover:bg-violet-50/40 hover:text-foreground dark:hover:bg-violet-950/20"
+            >
+              {/* <span className="text-xl font-light text-foreground/70">+</span> */}
+              <span className="mt-1 hidden text-[12px] font-medium leading-tight tracking-tight text-foreground/70 sm:block">
+                Drag a dish here
+              </span>
+              <span className="mt-0.5 text-[12px] italic text-foreground/50 sm:hidden">
+                + Add dish
+              </span>
+              <span className="mt-0.5 hidden text-[12px] italic text-foreground/50 sm:block">
+                or click to add
+              </span>
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-2xl border border-foreground/10 bg-background/80 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Add dish
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddDishOpen(false);
+                    setDishSearch("");
+                  }}
+                  aria-label="Close dish search"
+                  className="inline-flex size-6 items-center justify-center rounded-full border border-foreground/10 bg-background text-muted-foreground transition hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={dishSearch}
+                onChange={(event) => setDishSearch(event.target.value)}
+                placeholder="Search dishes"
+                autoFocus
+                className="w-full rounded-md border border-foreground/10 bg-background px-2 py-1.5 text-sm outline-none focus:border-violet-400"
+              />
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {filteredDishes.length === 0 ? (
+                  <div className="space-y-2 px-2 py-1">
+                    <div className="text-xs text-muted-foreground">No matching dishes</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddDishOpen(false);
+                        setDishSearch("");
+                        setIsNewDishDrawerOpen(true);
+                      }}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200"
+                    >
+                      Missing a dish? Add a new one.
+                    </button>
+                  </div>
+                ) : (
+                  filteredDishes.map((dish) => (
+                    <button
+                      key={dish.id}
+                      type="button"
+                      onClick={() => addDish(dish.id)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left transition hover:border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                    >
+                      <span className="truncate text-sm font-medium">{dish.name}</span>
+                      {dish.cuisine && (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{dish.cuisine}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-2 space-y-2">
@@ -833,7 +989,39 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
               </div>
             );
           })}
+        </div>
+      )}
 
+      {isNewDishDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]">
+          <div className="flex h-full w-full max-w-md flex-col border-l border-foreground/10 bg-background p-4 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Add a dish</div>
+                <h3 className="text-xl font-semibold">New dish</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsNewDishDrawerOpen(false);
+                  setNewDishError(null);
+                }}
+                className="inline-flex size-8 items-center justify-center rounded-full border border-foreground/10 bg-background text-muted-foreground transition hover:text-foreground"
+                aria-label="Close add dish panel"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto">
+              <DishForm
+                submitLabel="Save dish"
+                action="/dishes/new"
+                onSubmit={handleCreateDish}
+                error={newDishError}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
