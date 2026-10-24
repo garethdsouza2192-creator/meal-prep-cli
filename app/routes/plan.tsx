@@ -43,6 +43,18 @@ function getSelectedWeekStart(request: Request): Date {
   return startOfWeek(baseDate);
 }
 
+function normalizeMealSlotList(slots: unknown[]): string[] {
+  const cleaned = Array.from(
+    new Set(
+      slots
+        .map((slot) => (slot == null ? "" : String(slot).trim()))
+        .filter(Boolean),
+    ),
+  );
+
+  return cleaned.length > 0 ? cleaned : DEFAULT_MEAL_SLOTS;
+}
+
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Weekly plan · Meal Prep" }];
 }
@@ -183,7 +195,9 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
 
   const [mealSlotsByDay, setMealSlotsByDay] = useState<Record<string, string[]>>(() => {
     if (mealSlotConfig && Object.keys(mealSlotConfig).length > 0) {
-      return mealSlotConfig;
+      return Object.fromEntries(
+        Object.entries(mealSlotConfig).map(([date, slots]) => [date, normalizeMealSlotList(Array.isArray(slots) ? slots : [])]),
+      );
     }
 
     if (typeof window === "undefined") return {};
@@ -191,8 +205,11 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
     try {
       const raw = window.localStorage.getItem(SLOT_STORAGE_KEY);
       if (!raw) return {};
-      const parsed = JSON.parse(raw) as Record<string, string[]>;
-      return parsed;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+      return Object.fromEntries(
+        Object.entries(parsed).map(([date, slots]) => [date, normalizeMealSlotList(Array.isArray(slots) ? slots : [])]),
+      );
     } catch {
       return {};
     }
@@ -280,15 +297,15 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
 
   const ensureSlotsForDate = (date: string, source: Record<string, string[]> = mealSlotsByDay): string[] => {
     const current = source[date] ?? DEFAULT_MEAL_SLOTS;
-    return current.length > 0 ? current : DEFAULT_MEAL_SLOTS;
+    return normalizeMealSlotList(Array.isArray(current) ? current : DEFAULT_MEAL_SLOTS);
   };
 
   const updateSlotsForDate = (date: string, slots: string[]) => {
-    const cleaned = Array.from(new Set((slots || []).map((slot) => slot.trim()).filter(Boolean)));
+    const cleaned = normalizeMealSlotList(slots);
     setMealSlotsByDay((previous) => {
       const nextState = {
         ...previous,
-        [date]: cleaned.length > 0 ? cleaned : DEFAULT_MEAL_SLOTS,
+        [date]: cleaned,
       };
       void persistMealSlotConfig(nextState);
       return nextState;

@@ -60,7 +60,20 @@ export async function loadMealSlotConfig(
     throw error;
   }
 
-  return normalizeMealSlotConfig(data?.config ?? {});
+  const normalized = normalizeMealSlotConfig(data?.config ?? {});
+
+  if (data && JSON.stringify(normalized) !== JSON.stringify(data.config ?? {})) {
+    try {
+      await supabase
+        .from("user_meal_slot_configs")
+        .update({ config: normalized })
+        .eq("user_id", userId);
+    } catch {
+      // Best-effort cleanup; stale rows should not block rendering.
+    }
+  }
+
+  return normalized;
 }
 
 export async function saveMealSlotConfig(
