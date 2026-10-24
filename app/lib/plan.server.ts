@@ -134,6 +134,32 @@ export async function setPlanMeal(
   return error ? { error: error.message } : { ok: true };
 }
 
+export async function clearPlanMealsInRange(
+  supabase: SupabaseServer | null,
+  userId: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: true } | { error: string }> {
+  if (!supabase) {
+    demoStore.clearPlanMealsInRange(startDate, endDate);
+    return { ok: true };
+  }
+
+  if (await useLocalDemoPlanStore(supabase)) {
+    demoStore.clearPlanMealsInRange(startDate, endDate);
+    return { ok: true };
+  }
+
+  const { error } = await supabase
+    .from("plan_meals")
+    .delete()
+    .eq("user_id", userId)
+    .gte("meal_date", startDate)
+    .lte("meal_date", endDate);
+
+  return error ? { error: error.message } : { ok: true };
+}
+
 export async function removePlanMeal(
   supabase: SupabaseServer | null,
   meal_date: string,

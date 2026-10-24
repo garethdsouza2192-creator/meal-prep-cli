@@ -373,6 +373,19 @@ export const demoStore = {
     return true;
   },
 
+  clearPlanMealsInRange(startDate: string, endDate: string): number {
+    let cleared = 0;
+
+    for (const [key, meal] of Array.from(planMeals.entries())) {
+      if (meal.meal_date >= startDate && meal.meal_date <= endDate) {
+        planMeals.delete(key);
+        cleared += 1;
+      }
+    }
+
+    return cleared;
+  },
+
   setCookedStatus(date: string, slot: MealSlot, cooked: boolean): PlanMeal | null {
     const meal = planMeals.get(planKey(date, slot));
     if (!meal) return null;

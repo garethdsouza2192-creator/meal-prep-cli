@@ -83,6 +83,10 @@ export default function DishDetail({ loaderData }: Route.ComponentProps) {
           This also removes it from any planned meals.
         </p>
       </Form>
+
+      <a href={`https://www.google.com/search?q=${encodeURIComponent(dish.name)}+recipe`} target="_blank" rel="noopener noreferrer">
+        View Recipe
+      </a>
     </main>
   );
 }

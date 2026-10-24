@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
-import { BookOpen, ShoppingCart, Wand2, X } from "lucide-react";
+import { BookOpen, ChevronLeft, ShoppingCart, Wand2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { isFeatureEnabled } from "~/lib/feature-flags";
 import { EmptyState } from "~/components/empty-state";
 import { PageHeader } from "~/components/page-header";
 import {
@@ -16,6 +17,7 @@ import type { Dish } from "~/lib/dishes";
 import { listDishes } from "~/lib/dishes.server";
 import type { PlanMeal } from "~/lib/plan";
 import {
+  clearPlanMealsInRange,
   generatePlan,
   listPlanMealsInRange,
   removePlanMeal,
@@ -91,6 +93,14 @@ export async function action({ request }: Route.ActionArgs) {
       fillOnly,
     });
     return result;
+  }
+
+  if (intent === "clear-week") {
+    const weekInput = String(formData.get("week") ?? "");
+    const selectedStart = weekInput ? startOfWeek(parseIsoDate(weekInput)) : startOfWeek(new Date());
+    const startDate = toIsoDate(selectedStart);
+    const endDate = toIsoDate(weekDates(selectedStart)[weekDates(selectedStart).length - 1]);
+    return await clearPlanMealsInRange(supabase, user.id, startDate, endDate);
   }
 
   const meal_date = String(formData.get("meal_date") ?? "");
@@ -189,6 +199,52 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
   });
   const [bulkMealName, setBulkMealName] = useState("Meal 4");
   const [isBulkMealInputOpen, setIsBulkMealInputOpen] = useState(false);
+  const [isDishLibraryCollapsed, setIsDishLibraryCollapsed] = useState(false);
+  const [holidaysByDate, setHolidaysByDate] = useState<Record<string, string>>({});
+  const holidayFeatureEnabled = isFeatureEnabled("HOLIDATES");
+
+  useEffect(() => {
+    if (!holidayFeatureEnabled || typeof window === "undefined") return;
+
+    const getBrowserCountryCode = () => {
+      const locales = [...(navigator.languages ?? []), navigator.language ?? "en-US"];
+
+      for (const locale of locales) {
+        const match = locale.match(/[-_](\w{2,3})$/i);
+        if (match) return match[1].toUpperCase();
+      }
+
+      const resolvedLocale = Intl.DateTimeFormat().resolvedOptions().locale;
+      const resolvedMatch = resolvedLocale.match(/[-_](\w{2,3})$/i);
+      return resolvedMatch ? resolvedMatch[1].toUpperCase() : "US";
+    };
+
+    const year = new Date(`${weekStart}T00:00:00`).getFullYear();
+    const countryCode = getBrowserCountryCode();
+    const controller = new AbortController();
+
+    fetch(`https://nagerholidays.com/api/v4/Holidays/${countryCode}/${year}`, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Holiday fetch failed: ${response.status}`);
+        return response.json() as Promise<Array<{ date?: string; name?: string }>>;
+      })
+      .then((holidays) => {
+        const nextMap: Record<string, string> = {};
+        for (const holiday of holidays) {
+          if (!holiday.date || !holiday.name) continue;
+          nextMap[holiday.date] = holiday.name;
+        }
+        setHolidaysByDate(nextMap);
+      })
+      .catch(() => {
+        setHolidaysByDate({});
+      });
+
+    return () => controller.abort();
+  }, [holidayFeatureEnabled, weekStart]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -350,6 +406,48 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                     </span>
                   </Button>
                 </Form>
+                {isBulkMealInputOpen ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={bulkMealName}
+                      onChange={(event) => setBulkMealName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") addMealSlotToAllDays();
+                        if (event.key === "Escape") setIsBulkMealInputOpen(false);
+                      }}
+                      autoFocus
+                      placeholder="Meal name"
+                      className="rounded-md border border-foreground/10 bg-background px-2 py-1.5 text-sm outline-none focus:border-violet-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={addMealSlotToAllDays}
+                      className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900/80 dark:bg-violet-950/60 dark:text-violet-200"
+                    >
+                      Add to all days
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkMealInputOpen(true)}
+                    className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900/80 dark:bg-violet-950/60 dark:text-violet-200"
+                  >
+                    + Add daily meal
+                  </button>
+                )}
+                <Form method="post" onSubmit={(event) => {
+                  if (!window.confirm("Clear all meals for this week?")) {
+                    event.preventDefault();
+                  }
+                }}>
+                  <input type="hidden" name="intent" value="clear-week" />
+                  <input type="hidden" name="week" value={weekStart} />
+                  <Button type="submit" variant="secondary" className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+                    Clear week
+                  </Button>
+                </Form>
                 {hasAnyPlan && (
                   <Button asChild>
                     <Link to="/grocery">
@@ -387,42 +485,110 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
           }
         />
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="flex flex-col gap-3">
-            <div className="flex justify-end">
-              {isBulkMealInputOpen ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={bulkMealName}
-                    onChange={(event) => setBulkMealName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") addMealSlotToAllDays();
-                      if (event.key === "Escape") setIsBulkMealInputOpen(false);
-                    }}
-                    autoFocus
-                    placeholder="Meal name"
-                    className="rounded-md border border-foreground/10 bg-background px-2 py-1 text-sm outline-none focus:border-violet-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={addMealSlotToAllDays}
-                    className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900/80 dark:bg-violet-950/60 dark:text-violet-200"
-                  >
-                    Add to all days
-                  </button>
+        <div
+          className={
+            isDishLibraryCollapsed
+              ? "grid gap-2 xl:grid-cols-[56px_minmax(0,1fr)] xl:items-start"
+              : "grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)] xl:items-start"
+          }
+        >
+          <aside
+            className={[
+              "overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10 xl:sticky xl:top-6",
+              isDishLibraryCollapsed ? "h-[56px] w-[56px] justify-self-start p-2" : "w-full justify-self-start p-2 xl:w-[300px]",
+            ].join(" ")}
+          >
+            <div
+              className={[
+                "grid items-center",
+                isDishLibraryCollapsed
+                  ? "h-[40px] w-[40px] grid-cols-1"
+                  : "mb-3 min-h-[42px] grid-cols-[42px_minmax(0,1fr)] gap-3",
+              ].join(" ")}
+            >
+              <button
+                type="button"
+                onClick={() => setIsDishLibraryCollapsed((previous) => !previous)}
+                className={[
+                  "ml-0 inline-flex shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200/50 transition hover:border-violet-400 hover:text-foreground dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900/50",
+                  isDishLibraryCollapsed ? "h-[40px] w-[40px]" : "h-[42px] w-[42px]",
+                ].join(" ")}
+                aria-label={isDishLibraryCollapsed ? "Expand dish library" : "Collapse dish library"}
+                title={isDishLibraryCollapsed ? "Expand dish library" : "Collapse dish library"}
+              >
+                {isDishLibraryCollapsed ? <BookOpen className="size-4" /> : <ChevronLeft className="size-4" />}
+              </button>
+
+              <div
+                className={[
+                  "min-w-0 overflow-hidden",
+                  isDishLibraryCollapsed
+                    ? "pointer-events-none max-w-0 opacity-0"
+                    : "max-w-full opacity-100",
+                ].join(" ")}
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Dish library
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsBulkMealInputOpen(true)}
-                  className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900/80 dark:bg-violet-950/60 dark:text-violet-200"
-                >
-                  + Add daily meal
-                </button>
-              )}
+                <div className="font-heading text-lg font-semibold">
+                  {dishes.length} dishes
+                </div>
+              </div>
             </div>
 
+            {!isDishLibraryCollapsed && (
+              <div className="max-h-[680px] space-y-2 overflow-y-auto pr-1">
+                {dishes.map((dish) => (
+                  <div
+                    key={dish.id}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", dish.id);
+                      event.dataTransfer.setData("application/x-dish-id", dish.id);
+                      event.dataTransfer.setData("application/x-dish-source", "library");
+                      event.dataTransfer.setData("application/x-source", "library");
+                      event.currentTarget.classList.add("opacity-40", "scale-[0.98]");
+                    }}
+                    onDragEnd={(event) => {
+                      event.currentTarget.classList.remove("opacity-40", "scale-[0.98]");
+                    }}
+                    className="cursor-grab rounded-xl border border-foreground/10 bg-muted/40 p-3 text-left transition duration-150 hover:bg-muted active:cursor-grabbing"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-foreground">{dish.name}</div>
+                        {dish.cuisine && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {dish.cuisine}
+                          </div>
+                        )}
+                      </div>
+                      {dish.prep_time_min && (
+                        <span className="rounded-full bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground ring-1 ring-foreground/10">
+                          {dish.prep_time_min} min
+                        </span>
+                      )}
+                    </div>
+                    {dish.meal_types.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {dish.meal_types.map((mealType) => (
+                          <span
+                            key={`${dish.id}-${mealType}`}
+                            className="rounded-full bg-background px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground ring-1 ring-foreground/10"
+                          >
+                            {mealType}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          <div className="flex flex-col gap-3">
             {days.map((date, i) => {
               const isToday = date === todayIso;
               return (
@@ -446,6 +612,12 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                         })}
                       </span>
                     </div>
+
+                    {holidayFeatureEnabled && holidaysByDate[date] && (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        {holidaysByDate[date]}
+                      </span>
+                    )}
 
                     <div className="flex items-center gap-2">
                       {isToday && (
@@ -479,68 +651,6 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
               );
             })}
           </div>
-
-          <aside className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Dish library
-                </div>
-                <div className="font-heading text-lg font-semibold">
-                  {dishes.length} dishes
-                </div>
-              </div>
-            </div>
-
-            <div className="max-h-[680px] space-y-2 overflow-y-auto pr-1">
-              {dishes.map((dish) => (
-                <div
-                  key={dish.id}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", dish.id);
-                    event.dataTransfer.setData("application/x-dish-id", dish.id);
-                    event.dataTransfer.setData("application/x-dish-source", "library");
-                    event.dataTransfer.setData("application/x-source", "library");
-                    event.currentTarget.classList.add("opacity-40", "scale-[0.98]");
-                  }}
-                  onDragEnd={(event) => {
-                    event.currentTarget.classList.remove("opacity-40", "scale-[0.98]");
-                  }}
-                  className="cursor-grab rounded-xl border border-foreground/10 bg-muted/40 p-3 text-left transition duration-150 hover:bg-muted active:cursor-grabbing"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-foreground">{dish.name}</div>
-                      {dish.cuisine && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {dish.cuisine}
-                        </div>
-                      )}
-                    </div>
-                    {dish.prep_time_min && (
-                      <span className="rounded-full bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground ring-1 ring-foreground/10">
-                        {dish.prep_time_min} min
-                      </span>
-                    )}
-                  </div>
-                  {dish.meal_types.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {dish.meal_types.map((mealType) => (
-                        <span
-                          key={`${dish.id}-${mealType}`}
-                          className="rounded-full bg-background px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground ring-1 ring-foreground/10"
-                        >
-                          {mealType}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </aside>
         </div>
       )}
     </main>
