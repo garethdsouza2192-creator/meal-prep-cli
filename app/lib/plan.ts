@@ -7,6 +7,7 @@ export type PlanMeal = {
   meal_date: string;
   meal_slot: MealSlot;
   dish_id: string | null;
+  dish_ids: string[];
   status: PlanStatus;
   cooked_at: string | null;
 };

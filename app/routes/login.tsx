@@ -1,9 +1,9 @@
-import { Form, redirect, useActionData, useNavigation } from "react-router";
+import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { ChefHat } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { isDemoMode } from "~/lib/env.server";
+import { getAppEnvironment, isDemoMode, isLocalEnvironment } from "~/lib/env.server";
 import { getSupabaseServerClient } from "~/lib/supabase.server";
 import type { Route } from "./+types/login";
 
@@ -18,7 +18,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     data: { user },
   } = await supabase.auth.getUser();
   if (user) throw redirect("/");
-  return null;
+  return {
+    appEnvironment: getAppEnvironment(),
+    localAuthEmail: process.env.LOCAL_AUTH_EMAIL ?? "",
+    localAuthPassword: process.env.LOCAL_AUTH_PASSWORD ?? "",
+  };
 }
 
 function getPublicOrigin(request: Request): string {
@@ -47,9 +51,24 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "Enter an email address." };
   }
 
-  const redirectTo = `${getPublicOrigin(request)}/auth/callback`;
-
   const { supabase, headers } = getSupabaseServerClient(request);
+
+  if (isLocalEnvironment()) {
+    const password = String(formData.get("password") ?? "").trim();
+
+    if (!password) {
+      return { error: "Enter a password." };
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      return { error: error.message };
+    }
+
+    throw redirect("/", { headers });
+  }
+
+  const redirectTo = `${getPublicOrigin(request)}/auth/callback`;
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: redirectTo },
@@ -67,7 +86,9 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function Login() {
   const actionData = useActionData<typeof action>();
+  const { appEnvironment, localAuthEmail, localAuthPassword } = useLoaderData<typeof loader>();
   const nav = useNavigation();
+  const localAuth = appEnvironment === "LOCAL";
   const sending = nav.state === "submitting";
   const sent = actionData && !("error" in actionData);
 
@@ -94,17 +115,33 @@ export default function Login() {
               autoComplete="email"
               required
               placeholder="you@example.com"
+              defaultValue={localAuth ? localAuthEmail : undefined}
             />
           </div>
 
+          {localAuth && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                placeholder="Enter your password"
+                defaultValue={localAuth ? localAuthPassword : undefined}
+              />
+            </div>
+          )}
+
           <Button type="submit" disabled={sending} className="w-full">
-            {sending ? "Sending…" : "Send magic link"}
+            {sending ? (localAuth ? "Signing in…" : "Sending…") : localAuth ? "Sign in" : "Send magic link"}
           </Button>
 
           {actionData && "error" in actionData && (
             <p className="text-sm text-destructive">{actionData.error}</p>
           )}
-          {sent && (
+          {!localAuth && sent && (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
               Check your inbox for the magic link.
             </p>

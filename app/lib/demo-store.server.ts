@@ -8,6 +8,16 @@ const planMeals = new Map<string, PlanMeal>(); // key: `${date}|${slot}`
 
 const planKey = (date: string, slot: MealSlot) => `${date}|${slot}`;
 
+function normalizeDishIds(dishIds: string[] | string | null | undefined): string[] {
+  const values = Array.isArray(dishIds)
+    ? dishIds
+    : dishIds
+      ? [dishIds]
+      : [];
+
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 // Changed from DishInput[] to Dish[] and added a hardcoded 'id' to each
 const SEED_DISHES: Dish[] = [
   {
@@ -306,25 +316,61 @@ export const demoStore = {
     );
   },
 
-  setPlanMeal(date: string, slot: MealSlot, dish_id: string): PlanMeal {
+  setPlanMeal(date: string, slot: MealSlot, dishIds: string[] | string): PlanMeal {
     const key = planKey(date, slot);
+    const normalized = normalizeDishIds(dishIds);
     const existing = planMeals.get(key);
+    const nextDishIds = normalized.length > 0 ? normalized : existing?.dish_ids ?? [];
+    const primaryDishId = nextDishIds[0] ?? existing?.dish_id ?? null;
+
     const meal: PlanMeal = existing
-      ? { ...existing, dish_id, status: "planned", cooked_at: null }
+      ? {
+          ...existing,
+          dish_id: primaryDishId,
+          dish_ids: nextDishIds,
+          status: "planned",
+          cooked_at: null,
+        }
       : {
-          id: randomUUID(), // Safe here since it runs on a user request
+          id: randomUUID(),
           meal_date: date,
           meal_slot: slot,
-          dish_id,
+          dish_id: primaryDishId,
+          dish_ids: nextDishIds,
           status: "planned",
           cooked_at: null,
         };
+
+    if (nextDishIds.length === 0) {
+      planMeals.delete(key);
+      return meal;
+    }
+
     planMeals.set(key, meal);
     return meal;
   },
 
-  removePlanMeal(date: string, slot: MealSlot): boolean {
-    return planMeals.delete(planKey(date, slot));
+  removePlanMeal(date: string, slot: MealSlot, dishId?: string): boolean {
+    const key = planKey(date, slot);
+    const existing = planMeals.get(key);
+    if (!existing) return false;
+
+    if (!dishId) {
+      return planMeals.delete(key);
+    }
+
+    const remaining = (existing.dish_ids ?? []).filter((id) => id !== dishId);
+    if (remaining.length === 0) {
+      return planMeals.delete(key);
+    }
+
+    const updated: PlanMeal = {
+      ...existing,
+      dish_ids: remaining,
+      dish_id: remaining[0] ?? null,
+    };
+    planMeals.set(key, updated);
+    return true;
   },
 
   setCookedStatus(date: string, slot: MealSlot, cooked: boolean): PlanMeal | null {

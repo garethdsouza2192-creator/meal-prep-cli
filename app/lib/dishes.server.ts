@@ -1,5 +1,6 @@
 import type { SupabaseServer } from "./supabase.server";
 import { demoStore } from "./demo-store.server";
+import { isLocalEnvironment } from "./env.server";
 import { parseIngredientsText, type Ingredient } from "./ingredients";
 import { MEAL_TYPES, type Dish, type DishInput } from "./dishes";
 
@@ -50,6 +51,18 @@ export function parseDishForm(formData: FormData): DishInput | { error: string }
 
 export async function listDishes(supabase: SupabaseServer | null): Promise<Dish[]> {
   if (!supabase) return demoStore.listDishes();
+
+  if (isLocalEnvironment()) {
+    const { count, error } = await supabase
+      .from("dishes")
+      .select("id", { count: "exact", head: true });
+    if (error) throw error;
+
+    if ((count ?? 0) === 0) {
+      return demoStore.listDishes();
+    }
+  }
+
   const { data, error } = await supabase
     .from("dishes")
     .select(DISH_FIELDS)
@@ -74,6 +87,17 @@ export async function getDish(
 
 export async function countDishes(supabase: SupabaseServer | null): Promise<number> {
   if (!supabase) return demoStore.countDishes();
+
+  if (isLocalEnvironment()) {
+    const { count, error } = await supabase
+      .from("dishes")
+      .select("id", { count: "exact", head: true });
+    if (error) throw error;
+    if ((count ?? 0) === 0) {
+      return demoStore.countDishes();
+    }
+  }
+
   const { count, error } = await supabase
     .from("dishes")
     .select("id", { count: "exact", head: true });

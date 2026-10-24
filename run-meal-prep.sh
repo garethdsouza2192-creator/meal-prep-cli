@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 npm install
 pm2 delete meal-prep >/dev/null 2>&1 || true
-pm2 start "npm run dev:tailscale" --name meal-prep --update-env
+APP_ENV=PROD pm2 start "npm run dev:tailscale" --name meal-prep --update-env
 
 tailscale serve reset
 

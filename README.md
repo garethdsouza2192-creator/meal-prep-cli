@@ -2,10 +2,19 @@
 
 ## Local development
 
+Set the runtime mode explicitly before starting the app:
+
 ```bash
+export APP_ENV=LOCAL
 npm install
 npm run dev -- --host 0.0.0.0
 ```
+
+Valid values are `LOCAL`, `DEV`, and `PROD`.
+
+- `LOCAL` uses email/password sign-in.
+- `DEV` is for shared non-production environments.
+- `PROD` uses the production magic-link flow.
 
 ## Run with PM2 and Tailscale
 

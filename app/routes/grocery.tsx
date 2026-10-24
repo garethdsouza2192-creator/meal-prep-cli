@@ -53,10 +53,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const dishesById = new Map(allDishes.map((d) => [d.id, d]));
   const plannedDishes: Dish[] = [];
   for (const m of plan) {
-    if (!m.dish_id) continue;
+    const dishIds = m.dish_ids && m.dish_ids.length > 0 ? m.dish_ids : m.dish_id ? [m.dish_id] : [];
     if (m.status === "skipped") continue;
-    const dish = dishesById.get(m.dish_id);
-    if (dish) plannedDishes.push(dish);
+    for (const dishId of dishIds) {
+      const dish = dishesById.get(dishId);
+      if (dish) plannedDishes.push(dish);
+    }
   }
 
   return new Response(
