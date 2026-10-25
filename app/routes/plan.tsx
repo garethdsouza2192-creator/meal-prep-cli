@@ -756,14 +756,25 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
         credentials: "same-origin",
       });
 
-      if (response.ok) {
-        setIsNewDishDrawerOpen(false);
-        setNewDishError(null);
-        window.location.reload();
+      if (!response.ok && !response.redirected) {
+        setNewDishError("Unable to save the dish. Please check the form and try again.");
         return;
       }
 
-      setNewDishError("Unable to save the dish. Please check the form and try again.");
+      const finalUrl = response.redirected ? response.url : new URL(window.location.href).toString();
+      const pathParts = new URL(finalUrl).pathname.split("/").filter(Boolean);
+      const createdDishId = pathParts[pathParts.length - 1];
+
+      setIsNewDishDrawerOpen(false);
+      setNewDishError(null);
+
+      if (createdDishId && createdDishId !== "dishes") {
+        await addDish(createdDishId);
+        return;
+      }
+
+      window.location.reload();
+      return;
     } catch {
       setNewDishError("Unable to save the dish right now.");
     }
