@@ -171,6 +171,23 @@ function getMealTone(slot: string): string {
   return MEAL_TONE_CLASS[key] ?? "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900";
 }
 
+function getMealSortOrder(slot: string): number {
+  const key = String(slot).trim().toLowerCase();
+  if (key === "breakfast") return 0;
+  if (key === "lunch") return 1;
+  if (key === "dinner") return 2;
+  return 3;
+}
+
+function sortMealsForCalendar<T extends { meal_slot: string }>(meals: T[]): T[] {
+  return [...meals].sort((a, b) => {
+    const orderDelta = getMealSortOrder(a.meal_slot) - getMealSortOrder(b.meal_slot);
+    if (orderDelta !== 0) return orderDelta;
+
+    return String(a.meal_slot).localeCompare(String(b.meal_slot));
+  });
+}
+
 function getDishNamesForMeal(meal: { dish_id?: string | null; dish_ids?: string[] | null }, dishMap: Map<string, string>) {
   const ids = [
     ...(Array.isArray(meal.dish_ids) ? meal.dish_ids : meal.dish_id ? [meal.dish_id] : []),
@@ -213,6 +230,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       });
       map.set(dateKey, existing);
     }
+
+    for (const [dateKey, meals] of map.entries()) {
+      map.set(dateKey, sortMealsForCalendar(meals));
+    }
+
     return map;
   }, [dishMap, plan]);
 
@@ -319,20 +341,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             {weekDays.map((date) => {
               const iso = toIsoDate(date);
               const dailyMeals = mealsByDate.get(iso) ?? [];
+              const isToday = iso === toIsoDate(new Date());
               return (
-                <div key={iso} className="rounded-xl border border-foreground/10 bg-background/60 p-2">
+                <div key={iso} className={`rounded-xl border p-2 transition-all ${isToday ? "border-primary" : "border-foreground/10 bg-background/60"}`}>
                   <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {new Intl.DateTimeFormat("en", { weekday: "short" }).format(date)}
-                  </div>
-                  <div className="mb-2 text-center text-sm font-medium text-foreground">
+                    {new Intl.DateTimeFormat("en", { weekday: "short" }).format(date) + " "}
                     {new Intl.DateTimeFormat("en", { day: "numeric" }).format(date)}
                   </div>
                   <div className="space-y-1.5">
-                    {dailyMeals.length === 0 ? (
-                      <div className="rounded-md border border-dashed border-foreground/10 px-2 py-1 text-[10px] text-muted-foreground">
-                        Open
-                      </div>
-                    ) : (
+                    {dailyMeals.length !== 0 && (
                       dailyMeals.map((meal, index) => (
                         <div key={`${iso}-${meal.meal_slot}-${index}`} className={`rounded-md px-1.5 py-1 text-[10px] ring-1 ${getMealTone(meal.meal_slot)}`}>
                           <div className="truncate font-medium capitalize">{meal.meal_slot}</div>
@@ -377,11 +394,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                     {dailyMeals.length > 2 && (
                       <div className="text-[9px] text-muted-foreground">+{dailyMeals.length - 2} more</div>
                     )}
-                    {dailyMeals.length === 0 && (
+                    {/* {dailyMeals.length === 0 && (
                       <div className="rounded-md border border-dashed border-foreground/10 px-1.5 py-1 text-[9px] text-muted-foreground">
                         Free
                       </div>
-                    )}
+                    )} */}
                   </div>
                 </div>
               );

@@ -12,6 +12,7 @@ export default defineConfig({
       "127.0.0.1",
       "192.168.86.25",
       "100.69.205.98",
+      "mutiny-spinal-outbid.ngrok-free.dev",
       "meal-prep-cli.gareth-dsouza-2192.workers.dev",
     ],
   },

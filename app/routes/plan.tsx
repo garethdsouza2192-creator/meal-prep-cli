@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
-import { BookOpen, ChevronLeft, ShoppingCart, Wand2, X } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronUp, ShoppingCart, Wand2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { isFeatureEnabled } from "~/lib/feature-flags";
 import { DishForm } from "~/components/dish-form";
@@ -32,6 +32,12 @@ import type { Route } from "./+types/plan";
 
 const DEFAULT_MEAL_SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
 const SLOT_STORAGE_KEY = "meal-prep-slot-config-v1";
+const MOBILE_DAY_EXPANDED_STORAGE_KEY = "meal-prep-mobile-expanded-day";
+const PROTECTED_MEAL_SLOTS = new Set(DEFAULT_MEAL_SLOTS);
+
+function isProtectedMealSlot(slot: string): boolean {
+  return PROTECTED_MEAL_SLOTS.has(String(slot).trim().toLowerCase() as MealSlot);
+}
 
 function parseIsoDate(value: string): Date {
   return new Date(`${value}T00:00:00`);
@@ -161,6 +167,10 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "remove") {
+    // if (isProtectedMealSlot(meal_slot)) {
+    //   return { error: "Breakfast, lunch, and dinner cannot be removed from the weekly plan." };
+    // }
+
     const dish_id = String(formData.get("dish_id") ?? "");
     return await removePlanMeal(supabase, meal_date, meal_slot, dish_id || undefined);
   }
@@ -235,6 +245,18 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
       return {};
     }
   });
+  const [isMobile, setIsMobile] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+  const [mobileExpandedDay, setMobileExpandedDay] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const saved = window.localStorage.getItem(MOBILE_DAY_EXPANDED_STORAGE_KEY);
+      return saved || null;
+    } catch {
+      return null;
+    }
+  });
   const [bulkMealName, setBulkMealName] = useState("Meal 4");
   const [isBulkMealInputOpen, setIsBulkMealInputOpen] = useState(false);
   const [isDishLibraryCollapsed, setIsDishLibraryCollapsed] = useState(false);
@@ -289,6 +311,36 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
       window.localStorage.setItem(SLOT_STORAGE_KEY, JSON.stringify(mealSlotsByDay));
     }
   }, [mealSlotsByDay]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (mobileExpandedDay) {
+      window.localStorage.setItem(MOBILE_DAY_EXPANDED_STORAGE_KEY, mobileExpandedDay);
+      return;
+    }
+
+    window.localStorage.removeItem(MOBILE_DAY_EXPANDED_STORAGE_KEY);
+  }, [mobileExpandedDay]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const updateIsMobile = () => {
+      setIsMobile(mediaQuery.matches);
+      setHasMounted(true);
+    };
+
+    updateIsMobile();
+    mediaQuery.addEventListener?.("change", updateIsMobile);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", updateIsMobile);
+    };
+  }, []);
+
+  const isMobileViewport = hasMounted && isMobile;
 
   const persistMealSlotConfig = async (nextConfig: Record<string, string[]>) => {
     if (typeof window !== "undefined") {
@@ -361,11 +413,15 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
   };
 
   const removeMealSlot = (date: string, slot: string) => {
+    if (isProtectedMealSlot(slot)) return;
+
     const daySlots = ensureSlotsForDate(date).filter((candidate) => candidate !== slot);
     updateSlotsForDate(date, daySlots);
   };
 
   const renameMealSlot = (date: string, oldSlot: string, nextValue: string) => {
+    if (isProtectedMealSlot(oldSlot)) return;
+
     const nextName = nextValue.trim();
     if (!nextName) return;
 
@@ -619,16 +675,47 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
           <div className="flex flex-col gap-3">
             {days.map((date, i) => {
               const isToday = date === todayIso;
+              const isExpanded = !isMobileViewport || mobileExpandedDay === date;
+
+              const isInteractiveDayTarget = (target: EventTarget | null, currentTarget: EventTarget | null) => {
+                if (target === currentTarget) return false;
+                if (!(target instanceof HTMLElement)) return false;
+                return Boolean(
+                  target.closest(
+                    "button, input, textarea, select, a, [role='button'], [contenteditable='true']",
+                  ),
+                );
+              };
+
+              const handleDayToggle = (event?: React.SyntheticEvent) => {
+                if (!isMobileViewport) return;
+                // if (event && isInteractiveDayTarget(event.target, event.currentTarget)) return;
+                setMobileExpandedDay((previous) => (previous === date ? null : date));
+              };
+
               return (
                 <div
                   key={date}
                   className={
                     "rounded-2xl bg-card p-4 ring-1 transition " +
-                    (isToday ? "ring-foreground/30 shadow-sm" : "ring-foreground/10")
+                    (isExpanded ? "ring-foreground/30 shadow-sm" : "ring-foreground/10")
                   }
                 >
                   <div className="mb-3 flex items-baseline justify-between gap-3">
-                    <div className="flex items-baseline gap-2">
+                    <div
+                      onClick={handleDayToggle}
+                      className="cursor-pointer flex items-baseline gap-2"
+                      role={isMobileViewport ? "button" : undefined}
+                      tabIndex={isMobileViewport ? 0 : undefined}
+                      // onKeyDown={(event) => {
+                      //   if (!isMobileViewport) return;
+                      //   if (event.key === "Enter" || event.key === " ") {
+                      //     if (isInteractiveDayTarget(event.target, event.currentTarget)) return;
+                      //     event.preventDefault();
+                      //     handleDayToggle(event);
+                      //   }
+                      // }}
+                    >
                       <span className="font-heading font-medium">
                         {DAY_LABELS[i]}
                       </span>
@@ -641,40 +728,57 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                       </span>
                     </div>
 
-                    {holidayFeatureEnabled && holidaysByDate[date] && (
+                    {!isMobileViewport && holidayFeatureEnabled && holidaysByDate[date] && (
                       <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                         {holidaysByDate[date]}
                       </span>
                     )}
 
-                    <div className="flex items-center gap-2">
+                    {isMobileViewport && <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleDayToggle}
+                        aria-label="Minimize day card"
+                        className="inline-flex size-6 items-center justify-center rounded-full bg-background text-muted-foreground transition hover:text-foreground"
+                      >
+                        {isExpanded ? <ChevronUp className="size-4.5" /> : <ChevronDown className="size-4.5" />}
+                      </button>
                       {isToday && (
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                           Today
                         </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => addMealSlot(date)}
-                        className="inline-flex items-center rounded-full border border-foreground/10 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition hover:border-violet-400 hover:text-foreground"
-                      >
-                        + Add meal
-                      </button>
                     </div>
+                    }
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {ensureSlotsForDate(date).map((slot) => (
-                      <PlanCell
-                        key={`${date}-${slot}`}
-                        date={date}
-                        slot={slot}
-                        meal={planByCell.get(`${date}|${slot}`) ?? null}
-                        dishes={dishes}
-                        onRenameSlot={(nextValue) => renameMealSlot(date, slot, nextValue)}
-                        onRemoveSlot={() => removeMealSlot(date, slot)}
-                      />
-                    ))}
-                  </div>
+
+                  {!isMobileViewport || isExpanded ? (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {ensureSlotsForDate(date).map((slot) => (
+                        <PlanCell
+                          key={`${date}-${slot}`}
+                          date={date}
+                          slot={slot}
+                          meal={planByCell.get(`${date}|${slot}`) ?? null}
+                          dishes={dishes}
+                          onRenameSlot={(nextValue) => renameMealSlot(date, slot, nextValue)}
+                          onRemoveSlot={() => removeMealSlot(date, slot)}
+                        />
+                      ))}
+                      <div className={`flex ${isMobileViewport ? 'justify-end' : 'justify-start'}`}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            addMealSlot(date);
+                          }}
+                          className="inline-flex items-center w-fit max-h-[20px] rounded-full border border-foreground/10 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition hover:border-violet-400 hover:text-foreground"
+                        >
+                          Add meal
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -858,18 +962,24 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
         <input
           type="text"
           value={slot}
-          onChange={(event) => onRenameSlot(event.target.value)}
+          readOnly={isProtectedMealSlot(slot)}
+          onChange={(event) => {
+            if (isProtectedMealSlot(slot)) return;
+            onRenameSlot(event.target.value);
+          }}
           className="w-full border-0 bg-transparent px-0 py-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground outline-none placeholder:text-muted-foreground/60"
           aria-label={`Meal slot name for ${date}`}
         />
-        <button
-          type="button"
-          onClick={onRemoveSlot}
-          aria-label={`Remove ${slot} meal slot`}
-          className="cursor-pointer text-muted-foreground transition hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
+        {!isProtectedMealSlot(slot) && (
+          <button
+            type="button"
+            onClick={onRemoveSlot}
+            aria-label={`Remove ${slot} meal slot`}
+            className="cursor-pointer text-muted-foreground transition hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        )}
       </div>
 
       {assignedDishIds.length === 0 ? (
@@ -977,14 +1087,15 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
                 className="flex items-start justify-between gap-2 rounded-lg border border-foreground/10 bg-background/80 p-2 transition duration-150"
               >
                 <div className="min-w-0 flex-1">
-                  <Link
-                    to={`/dishes/${dish.id}`}
-                    className="block truncate text-sm font-medium hover:underline"
-                  >
-                    {dish.name}
-                  </Link>
+                  {dish.name}
                 </div>
-                <Form method="post">
+                <Form method="post" onSubmit={(event) => {
+                    
+                    const ok = window.confirm(`Are you sure you want to remove "${dish.name}"?`);
+                    if (!ok) {
+                      event.preventDefault();
+                    }
+                  }}>
                   <input type="hidden" name="intent" value="remove" />
                   <input type="hidden" name="meal_date" value={date} />
                   <input type="hidden" name="meal_slot" value={slot} />
