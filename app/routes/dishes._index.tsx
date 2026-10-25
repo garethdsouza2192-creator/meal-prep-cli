@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { BookOpen, Plus, Search } from "lucide-react";
+import { AddDishDrawer } from "~/components/add-dish-drawer";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/empty-state";
@@ -26,6 +27,7 @@ export default function DishesIndex({ loaderData }: Route.ComponentProps) {
   const { dishes } = loaderData as { dishes: Dish[] };
   const [search, setSearch] = useState("");
   const [selectedMealType, setSelectedMealType] = useState("all");
+  const [isAddDishOpen, setIsAddDishOpen] = useState(false);
 
   const filteredDishes = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -65,14 +67,14 @@ export default function DishesIndex({ loaderData }: Route.ComponentProps) {
         }
         action={
           dishes.length > 0 && (
-            <Button asChild>
-              <Link to="/dishes/new">
-                <Plus className="size-4" /> Add dish
-              </Link>
+            <Button type="button" onClick={() => setIsAddDishOpen(true)}>
+              <Plus className="size-4" /> Add dish
             </Button>
           )
         }
       />
+
+      <AddDishDrawer open={isAddDishOpen} onClose={() => setIsAddDishOpen(false)} existingDishes={dishes} />
 
       {dishes.length === 0 ? (
         <EmptyState
@@ -80,10 +82,8 @@ export default function DishesIndex({ loaderData }: Route.ComponentProps) {
           title="No dishes yet"
           message="Add the first one and it'll show up here. You can plan it, get suggestions for it, and add its ingredients to a grocery list."
           action={
-            <Button asChild>
-              <Link to="/dishes/new">
-                <Plus className="size-4" /> Add your first dish
-              </Link>
+            <Button type="button" onClick={() => setIsAddDishOpen(true)}>
+              <Plus className="size-4" /> Add your first dish
             </Button>
           }
         />

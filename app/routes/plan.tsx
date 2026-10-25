@@ -1019,6 +1019,7 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
                 action="/dishes/new"
                 onSubmit={handleCreateDish}
                 error={newDishError}
+                existingDishes={dishes}
               />
             </div>
           </div>

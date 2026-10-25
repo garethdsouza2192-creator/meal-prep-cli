@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Form, Link } from "react-router";
 import {
   BookOpen,
   Calendar,
+  LogOut,
   Plus,
   Refrigerator,
   ShoppingCart,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
+import { AddDishDrawer } from "~/components/add-dish-drawer";
 import { startOfWeek, toIsoDate, weekDates } from "~/lib/dates";
-import { countDishes } from "~/lib/dishes.server";
-import { countPlannedThisWeek } from "~/lib/plan.server";
+import { countDishes, listDishes } from "~/lib/dishes.server";
+import { countPlannedThisWeek, listPlanMealsInRange } from "~/lib/plan.server";
 import { requireUser } from "~/lib/require-user.server";
 import type { Route } from "./+types/home";
 
@@ -37,17 +39,26 @@ export async function loader({ request }: Route.LoaderArgs) {
   const startStr = toIsoDate(days[0]);
   const endStr = toIsoDate(days[days.length - 1]);
 
-  const [dishCount, plannedThisWeek] = await Promise.all([
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+  const monthStartStr = toIsoDate(monthStart);
+  const monthEndStr = toIsoDate(monthEnd);
+
+  const [dishCount, plannedThisWeek, dishes, monthPlan] = await Promise.all([
     countDishes(supabase),
     countPlannedThisWeek(supabase, startStr, endStr),
+    listDishes(supabase),
+    listPlanMealsInRange(supabase, monthStartStr, monthEndStr),
   ]);
 
-  console.log("Home loader data", { dishCount, plannedThisWeek });
+  console.log("Home loader data", { dishCount, plannedThisWeek, dishes: dishes.length, monthPlan: monthPlan.length });
 
   return new Response(
     JSON.stringify({
       dishCount,
       plannedThisWeek,
+      dishes,
+      plan: monthPlan,
       user: { email: user.email ?? "User" },
     }),
     {
@@ -72,17 +83,53 @@ const TONES: Record<Tone, string> = {
 };
 
 type TileProps = {
-  to: string;
+  to?: string;
   icon: LucideIcon;
   title: string;
   count?: string;
   tone: Tone;
+  compact?: boolean;
+  onClick?: () => void;
 };
 
-function Tile({ to, icon: Icon, title, count, tone }: TileProps) {
+function Tile({ to, icon: Icon, title, count, tone, compact = false, onClick }: TileProps) {
+  const content = (
+    <>
+      <div className={`grid size-7 place-items-center rounded-full ring-1 ${TONES[tone]} transition group-hover:scale-105`}>
+        <Icon className="size-3.5" />
+      </div>
+      <span className="text-[11px] font-medium leading-none">{title}</span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        className="group inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-card px-2.5 py-2 text-muted-foreground shadow-sm transition hover:border-foreground/20 hover:text-foreground"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  if (compact) {
+    return (
+      <Link
+        to={to ?? "/"}
+        title={title}
+        className="group inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-card px-2.5 py-2 text-muted-foreground shadow-sm transition hover:border-foreground/20 hover:text-foreground"
+      >
+        {content}
+      </Link>
+    );
+  }
+
   return (
     <Link
-      to={to}
+      to={to ?? "/"}
       className="group flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 transition duration-150 hover:-translate-y-0.5 hover:shadow-md hover:ring-foreground/20 active:translate-y-0 sm:p-5"
     >
       <div
@@ -112,13 +159,38 @@ function useGreeting(): string {
   return greeting;
 }
 
+const MEAL_TONE_CLASS: Record<string, string> = {
+  breakfast: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900",
+  lunch: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900",
+  dinner: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900",
+  snack: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900",
+};
+
+function getMealTone(slot: string): string {
+  const key = String(slot).toLowerCase();
+  return MEAL_TONE_CLASS[key] ?? "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900";
+}
+
+function getDishNamesForMeal(meal: { dish_id?: string | null; dish_ids?: string[] | null }, dishMap: Map<string, string>) {
+  const ids = [
+    ...(Array.isArray(meal.dish_ids) ? meal.dish_ids : meal.dish_id ? [meal.dish_id] : []),
+    ...(meal.dish_id ? [meal.dish_id] : []),
+  ];
+
+  return Array.from(new Set(ids.filter(Boolean))).map((id) => dishMap.get(id)).filter(Boolean) as string[];
+}
+
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { dishCount, plannedThisWeek, user } = loaderData as {
+  const { dishCount, plannedThisWeek, dishes, plan, user } = loaderData as {
     dishCount: number;
     plannedThisWeek: number;
+    dishes: Array<{ id: string; name: string; meal_types?: string[] }>;
+    plan: Array<{ meal_date: string; meal_slot: string; dish_id?: string | null; dish_ids?: string[] | null }>;
     user?: { email?: string };
   };
   const greeting = useGreeting();
+  const [view, setView] = useState<"week" | "month">("week");
+  const [isAddDishOpen, setIsAddDishOpen] = useState(false);
   const userEmail = user?.email ?? "User";
   const initials = userEmail
     .split("@")[0]
@@ -128,8 +200,39 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "U";
 
+  const dishMap = useMemo(() => new Map(dishes.map((dish) => [dish.id, dish.name])), [dishes]);
+
+  const mealsByDate = useMemo(() => {
+    const map = new Map<string, Array<{ meal_slot: string; dishNames: string[] }>>();
+    for (const meal of plan) {
+      const dateKey = meal.meal_date;
+      const existing = map.get(dateKey) ?? [];
+      existing.push({
+        meal_slot: meal.meal_slot,
+        dishNames: getDishNamesForMeal(meal, dishMap),
+      });
+      map.set(dateKey, existing);
+    }
+    return map;
+  }, [dishMap, plan]);
+
+  const weekDays = useMemo(() => weekDates(startOfWeek(new Date())), []);
+  const monthDate = new Date();
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const calendarStart = new Date(monthStart);
+  calendarStart.setDate(monthStart.getDate() - monthStart.getDay());
+  const monthCells = useMemo(() => {
+    const cells: Date[] = [];
+    for (let i = 0; i < 42; i += 1) {
+      const cell = new Date(calendarStart);
+      cell.setDate(calendarStart.getDate() + i);
+      cells.push(cell);
+    }
+    return cells;
+  }, [calendarStart]);
+
   return (
-    <main className="mx-auto min-h-svh max-w-3xl px-4 py-8 sm:py-12">
+    <main className="mx-auto min-h-svh max-w-4xl px-4 py-8 sm:py-12">
       <header className="mb-8 flex items-start justify-between gap-4 sm:mb-12">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -152,36 +255,139 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               {userEmail}
             </div>
           </div>
+          <Form method="post" action="/logout">
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1.5 rounded-full border border-foreground/10 bg-background px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            >
+              <LogOut className="size-3.5" />
+              Sign out
+            </button>
+          </Form>
         </div>
       </header>
 
-      <section
-        aria-label="Quick actions"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3"
-      >
-        <Tile
-          to="/dishes"
-          icon={BookOpen}
-          title="Dishes"
-          count={dishCount === 0 ? "Empty" : `${dishCount} saved`}
-          tone="amber"
-        />
-        <Tile to="/suggest" icon={Sparkles} title="Suggest a dish" tone="violet" />
-        <Tile
-          to="/suggest?mode=pantry"
-          icon={Refrigerator}
-          title="What I have"
-          tone="emerald"
-        />
-        <Tile
-          to="/plan"
-          icon={Calendar}
-          title="Weekly plan"
-          count={plannedThisWeek === 0 ? "Open" : `${plannedThisWeek} planned`}
-          tone="sky"
-        />
-        <Tile to="/grocery" icon={ShoppingCart} title="Grocery list" tone="rose" />
-        <Tile to="/dishes/new" icon={Plus} title="Add a dish" tone="neutral" />
+      <div className="mb-6 flex flex-wrap items-center gap-2 sm:mb-8 sm:gap-3">
+        <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <Tile to="/dishes" icon={BookOpen} title="Dishes" compact tone="amber" />
+          <Tile to="/suggest" icon={Sparkles} title="Suggest a dish" compact tone="violet" />
+          <Tile to="/suggest?mode=pantry" icon={Refrigerator} title="What I have" compact tone="emerald" />
+          <Tile to="/plan" icon={Calendar} title="Weekly plan" compact tone="sky" />
+          <Tile to="/grocery" icon={ShoppingCart} title="Grocery list" compact tone="rose" />
+          <Tile
+            icon={Plus}
+            title="Add a dish"
+            compact
+            tone="neutral"
+            onClick={() => setIsAddDishOpen(true)}
+          />
+        </section>
+      </div>
+
+      <AddDishDrawer open={isAddDishOpen} onClose={() => setIsAddDishOpen(false)} existingDishes={dishes} />
+
+      <section className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Calendar
+            </div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              {view === "week" ? "This week" : "This month"}
+            </div>
+          </div>
+          <div className="inline-flex rounded-full border border-foreground/10 bg-muted/60 p-1">
+            {(["week", "month"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setView(option)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize transition ${
+                  view === option
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {view === "week" ? (
+          <div className="grid gap-2 sm:grid-cols-7">
+            {weekDays.map((date) => {
+              const iso = toIsoDate(date);
+              const dailyMeals = mealsByDate.get(iso) ?? [];
+              return (
+                <div key={iso} className="rounded-xl border border-foreground/10 bg-background/60 p-2">
+                  <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {new Intl.DateTimeFormat("en", { weekday: "short" }).format(date)}
+                  </div>
+                  <div className="mb-2 text-center text-sm font-medium text-foreground">
+                    {new Intl.DateTimeFormat("en", { day: "numeric" }).format(date)}
+                  </div>
+                  <div className="space-y-1.5">
+                    {dailyMeals.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-foreground/10 px-2 py-1 text-[10px] text-muted-foreground">
+                        Open
+                      </div>
+                    ) : (
+                      dailyMeals.map((meal, index) => (
+                        <div key={`${iso}-${meal.meal_slot}-${index}`} className={`rounded-md px-1.5 py-1 text-[10px] ring-1 ${getMealTone(meal.meal_slot)}`}>
+                          <div className="truncate font-medium capitalize">{meal.meal_slot}</div>
+                          <div className="mt-0.5 line-clamp-2">
+                            {meal.dishNames.length > 0 ? meal.dishNames.join(", ") : "Planned"}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-7 gap-2">
+            {monthCells.map((date) => {
+              const iso = toIsoDate(date);
+              const isCurrentMonth = date.getMonth() === monthDate.getMonth();
+              const dailyMeals = mealsByDate.get(iso) ?? [];
+              return (
+                <div
+                  key={iso}
+                  className={`min-h-[110px] rounded-xl border p-2 ${
+                    isCurrentMonth
+                      ? "border-foreground/10 bg-background/60"
+                      : "border-foreground/5 bg-muted/30 text-muted-foreground"
+                  }`}
+                >
+                  <div className="mb-2 text-right text-[10px] font-semibold text-muted-foreground">
+                    {new Intl.DateTimeFormat("en", { day: "numeric" }).format(date)}
+                  </div>
+                  <div className="space-y-1.5">
+                    {dailyMeals.slice(0, 2).map((meal, index) => (
+                      <div key={`${iso}-${meal.meal_slot}-${index}`} className={`rounded-md px-1.5 py-1 text-[9px] ring-1 ${getMealTone(meal.meal_slot)}`}>
+                        <div className="truncate font-medium capitalize">{meal.meal_slot}</div>
+                        <div className="mt-0.5 line-clamp-2">
+                          {meal.dishNames.length > 0 ? meal.dishNames.join(", ") : "Planned"}
+                        </div>
+                      </div>
+                    ))}
+                    {dailyMeals.length > 2 && (
+                      <div className="text-[9px] text-muted-foreground">+{dailyMeals.length - 2} more</div>
+                    )}
+                    {dailyMeals.length === 0 && (
+                      <div className="rounded-md border border-dashed border-foreground/10 px-1.5 py-1 text-[9px] text-muted-foreground">
+                        Free
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section

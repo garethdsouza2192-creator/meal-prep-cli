@@ -3,7 +3,7 @@ import { redirect, useActionData, useFetcher } from "react-router";
 import { DishForm } from "~/components/dish-form";
 import { PageHeader } from "~/components/page-header";
 import type { Dish } from "~/lib/dishes";
-import { createDish, parseDishForm } from "~/lib/dishes.server";
+import { createDish, listDishes, parseDishForm } from "~/lib/dishes.server";
 import { hasAnthropicKey } from "~/lib/env.server";
 import { requireUser } from "~/lib/require-user.server";
 import type { Route } from "./+types/dishes.new";
@@ -13,8 +13,9 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUser(request);
-  return { aiAvailable: hasAnthropicKey() };
+  const { supabase } = await requireUser(request);
+  const dishes = await listDishes(supabase);
+  return { aiAvailable: hasAnthropicKey(), dishes };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -35,7 +36,7 @@ type AutoFillResponse =
   | { ok: false; error: string };
 
 export default function NewDish({ loaderData }: Route.ComponentProps) {
-  const { aiAvailable } = loaderData as { aiAvailable: boolean };
+  const { aiAvailable, dishes } = loaderData as { aiAvailable: boolean; dishes: Dish[] };
   const actionData = useActionData<typeof action>();
 
   const fetcher = useFetcher<AutoFillResponse>();
@@ -86,6 +87,7 @@ export default function NewDish({ loaderData }: Route.ComponentProps) {
         onAutoFill={aiAvailable ? handleAutoFill : undefined}
         autoFilling={fetcher.state !== "idle"}
         autoFillError={autoFillError}
+        existingDishes={dishes}
       />
     </main>
   );
