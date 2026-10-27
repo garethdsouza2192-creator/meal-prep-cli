@@ -445,8 +445,19 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
     setIsBulkMealInputOpen(false);
   };
 
-  const removeMealSlot = (date: string, slot: string) => {
+  const removeMealSlot = async (date: string, slot: string) => {
     if (isProtectedMealSlot(slot)) return;
+
+    const formData = new FormData();
+    formData.set("intent", "remove");
+    formData.set("meal_date", date);
+    formData.set("meal_slot", slot);
+
+    await fetch("/plan", {
+      method: "POST",
+      body: formData,
+      credentials: "same-origin",
+    });
 
     const daySlots = ensureSlotsForDate(date).filter((candidate) => candidate !== slot);
     updateSlotsForDate(date, daySlots);
@@ -861,7 +872,7 @@ type CellProps = {
   meal: PlanMeal | null;
   dishes: Dish[];
   onRenameSlot: (nextValue: string) => void;
-  onRemoveSlot: () => void;
+  onRemoveSlot: () => Promise<void> | void;
 };
 
 function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: CellProps) {
