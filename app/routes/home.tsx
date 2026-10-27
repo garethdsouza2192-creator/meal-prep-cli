@@ -318,9 +318,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       <section className="mb-6 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {/* <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Calendar
-            </div>
+            </div> */}
             {view === "week" && (
               <div className="mt-2 inline-flex rounded-full border border-foreground/10 bg-muted/60 p-1">
               {(["this", "next"] as const).map((option) => (

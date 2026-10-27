@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Form, Link, useActionData, useNavigation } from "react-router";
+import { Form, Link, useActionData, useNavigation, useRevalidator } from "react-router";
 import { BookOpen, ChevronDown, ChevronLeft, ChevronUp, CopyPlus, Plus, ShoppingCart, Wand2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { isFeatureEnabled } from "~/lib/feature-flags";
@@ -865,6 +865,7 @@ type CellProps = {
 };
 
 function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: CellProps) {
+  const revalidator = useRevalidator();
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddDishOpen, setIsAddDishOpen] = useState(false);
@@ -906,7 +907,7 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
       });
 
       if (response.ok) {
-        window.location.reload();
+        await revalidator.revalidate();
       }
     } finally {
       setIsSubmitting(false);
@@ -943,7 +944,7 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
         return;
       }
 
-      window.location.reload();
+      await revalidator.revalidate();
       return;
     } catch {
       setNewDishError("Unable to save the dish right now.");
@@ -995,7 +996,7 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
       });
 
       if (response.ok) {
-        window.location.reload();
+        await revalidator.revalidate();
       }
     } finally {
       setIsSubmitting(false);
