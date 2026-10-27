@@ -207,6 +207,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   };
   const greeting = useGreeting();
   const [view, setView] = useState<"week" | "month">("week");
+  const [weekWindow, setWeekWindow] = useState<"this" | "next">("this");
   const [isAddDishOpen, setIsAddDishOpen] = useState(false);
   const userEmail = user?.email ?? "User";
   const initials = userEmail
@@ -220,25 +221,48 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const dishMap = useMemo(() => new Map(dishes.map((dish) => [dish.id, dish.name])), [dishes]);
 
   const mealsByDate = useMemo(() => {
-    const map = new Map<string, Array<{ meal_slot: string; dishNames: string[] }>>();
+    const map = new Map<string, Map<string, { meal_slot: string; dishNames: Set<string> }>>();
+
     for (const meal of plan) {
       const dateKey = meal.meal_date;
-      const existing = map.get(dateKey) ?? [];
-      existing.push({
+      const slotMap = map.get(dateKey) ?? new Map();
+      const existing = slotMap.get(meal.meal_slot) ?? {
         meal_slot: meal.meal_slot,
-        dishNames: getDishNamesForMeal(meal, dishMap),
-      });
-      map.set(dateKey, existing);
+        dishNames: new Set<string>(),
+      };
+
+      for (const dishName of getDishNamesForMeal(meal, dishMap)) {
+        existing.dishNames.add(dishName);
+      }
+
+      slotMap.set(meal.meal_slot, existing);
+      map.set(dateKey, slotMap);
     }
 
-    for (const [dateKey, meals] of map.entries()) {
-      map.set(dateKey, sortMealsForCalendar(meals));
+    const resolved = new Map<string, Array<{ meal_slot: string; dishNames: string[] }>>();
+    for (const [dateKey, slotMap] of map.entries()) {
+      resolved.set(
+        dateKey,
+        sortMealsForCalendar(
+          [...slotMap.values()].map((entry) => ({
+            meal_slot: entry.meal_slot,
+            dishNames: [...entry.dishNames],
+          })),
+        ),
+      );
     }
 
-    return map;
+    return resolved;
   }, [dishMap, plan]);
 
-  const weekDays = useMemo(() => weekDates(startOfWeek(new Date())), []);
+  const visibleWeekStart = useMemo(() => {
+    const start = startOfWeek(new Date());
+    const next = new Date(start);
+    next.setDate(start.getDate() + (weekWindow === "next" ? 7 : 0));
+    return next;
+  }, [weekWindow]);
+
+  const weekDays = useMemo(() => weekDates(visibleWeekStart), [visibleWeekStart]);
   const monthDate = new Date();
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
   const calendarStart = new Date(monthStart);
@@ -289,34 +313,32 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </header>
 
-      <div className="mb-6 flex flex-wrap items-center gap-2 sm:mb-8 sm:gap-3">
-        <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <Tile to="/dishes" icon={BookOpen} title="Dishes" compact tone="amber" />
-          <Tile to="/suggest" icon={Sparkles} title="Suggest a dish" compact tone="violet" />
-          <Tile to="/suggest?mode=pantry" icon={Refrigerator} title="What I have" compact tone="emerald" />
-          <Tile to="/plan" icon={Calendar} title="Weekly plan" compact tone="sky" />
-          <Tile to="/grocery" icon={ShoppingCart} title="Grocery list" compact tone="rose" />
-          <Tile
-            icon={Plus}
-            title="Add a dish"
-            compact
-            tone="neutral"
-            onClick={() => setIsAddDishOpen(true)}
-          />
-        </section>
-      </div>
-
       <AddDishDrawer open={isAddDishOpen} onClose={() => setIsAddDishOpen(false)} existingDishes={dishes} />
 
-      <section className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
+      <section className="mb-6 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Calendar
             </div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {view === "week" ? "This week" : "This month"}
+            {view === "week" && (
+              <div className="mt-2 inline-flex rounded-full border border-foreground/10 bg-muted/60 p-1">
+              {(["this", "next"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setWeekWindow(option)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    weekWindow === option
+                      ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option === "this" ? "This week" : "Next week"}
+                </button>
+              ))}
             </div>
+            )}
           </div>
           <div className="inline-flex rounded-full border border-foreground/10 bg-muted/60 p-1">
             {(["week", "month"] as const).map((option) => (
@@ -406,6 +428,23 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </div>
         )}
       </section>
+
+      <div className="mb-6 flex flex-wrap items-center gap-2 sm:mb-8 sm:gap-3">
+        <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <Tile to="/dishes" icon={BookOpen} title="Dishes" compact tone="amber" />
+          <Tile to="/suggest" icon={Sparkles} title="Suggest a dish" compact tone="violet" />
+          <Tile to="/suggest?mode=pantry" icon={Refrigerator} title="What I have" compact tone="emerald" />
+          <Tile to="/plan" icon={Calendar} title="Weekly plan" compact tone="sky" />
+          <Tile to="/grocery" icon={ShoppingCart} title="Grocery list" compact tone="rose" />
+          <Tile
+            icon={Plus}
+            title="Add a dish"
+            compact
+            tone="neutral"
+            onClick={() => setIsAddDishOpen(true)}
+          />
+        </section>
+      </div>
 
       <section
         aria-label="This week"

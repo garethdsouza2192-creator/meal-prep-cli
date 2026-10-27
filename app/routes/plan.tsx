@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
-import { BookOpen, ChevronDown, ChevronLeft, ChevronUp, ShoppingCart, Wand2, X } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronUp, CopyPlus, Plus, ShoppingCart, Wand2, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { isFeatureEnabled } from "~/lib/feature-flags";
 import { DishForm } from "~/components/dish-form";
@@ -33,6 +33,7 @@ import type { Route } from "./+types/plan";
 const DEFAULT_MEAL_SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
 const SLOT_STORAGE_KEY = "meal-prep-slot-config-v1";
 const MOBILE_DAY_EXPANDED_STORAGE_KEY = "meal-prep-mobile-expanded-day";
+const PLANNER_LAYOUT_STORAGE_KEY = "meal-prep-plan-layout";
 const PROTECTED_MEAL_SLOTS = new Set(DEFAULT_MEAL_SLOTS);
 
 function isProtectedMealSlot(slot: string): boolean {
@@ -245,7 +246,20 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
       return {};
     }
   });
+  const [plannerLayoutPreference, setPlannerLayoutPreference] = useState<"stacked" | "side-by-side">(() => {
+    if (typeof window === "undefined") return "stacked";
+
+    try {
+      const saved = window.localStorage.getItem(PLANNER_LAYOUT_STORAGE_KEY);
+      if (saved === "stacked" || saved === "side-by-side") return saved;
+    } catch {
+      // ignore invalid storage values
+    }
+
+    return window.matchMedia("(orientation: landscape)").matches ? "side-by-side" : "stacked";
+  });
   const [isMobile, setIsMobile] = useState(false);
+  const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const [mobileExpandedDay, setMobileExpandedDay] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -325,22 +339,41 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    window.localStorage.setItem(PLANNER_LAYOUT_STORAGE_KEY, plannerLayoutPreference);
+  }, [plannerLayoutPreference]);
 
-    const mediaQuery = window.matchMedia("(max-width: 767px)");
-    const updateIsMobile = () => {
-      setIsMobile(mediaQuery.matches);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mobileMediaQuery = window.matchMedia("(max-width: 767px)");
+    const tabletLandscapeMediaQuery = window.matchMedia("(min-width: 768px) and (orientation: landscape)");
+
+    const updateLayoutState = () => {
+      const nextIsMobile = mobileMediaQuery.matches || window.innerWidth <= 767;
+      const nextIsTabletLandscape = (tabletLandscapeMediaQuery.matches || window.innerWidth >= 768) && window.innerHeight <= window.innerWidth;
+
+      setIsMobile(nextIsMobile);
+      setIsTabletLandscape(nextIsTabletLandscape);
       setHasMounted(true);
     };
 
-    updateIsMobile();
-    mediaQuery.addEventListener?.("change", updateIsMobile);
+    updateLayoutState();
+    mobileMediaQuery.addEventListener?.("change", updateLayoutState);
+    tabletLandscapeMediaQuery.addEventListener?.("change", updateLayoutState);
+    window.addEventListener("resize", updateLayoutState);
+    window.addEventListener("orientationchange", updateLayoutState);
 
     return () => {
-      mediaQuery.removeEventListener?.("change", updateIsMobile);
+      mobileMediaQuery.removeEventListener?.("change", updateLayoutState);
+      tabletLandscapeMediaQuery.removeEventListener?.("change", updateLayoutState);
+      window.removeEventListener("resize", updateLayoutState);
+      window.removeEventListener("orientationchange", updateLayoutState);
     };
   }, []);
 
   const isMobileViewport = hasMounted && isMobile;
+  const shouldShowLayoutControls = hasMounted && !isMobileViewport;
+  const shouldShowDaysSideBySide = hasMounted && !isMobileViewport && plannerLayoutPreference === "side-by-side";
 
   const persistMealSlotConfig = async (nextConfig: Record<string, string[]>) => {
     if (typeof window !== "undefined") {
@@ -449,6 +482,35 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
         action={
           dishes.length > 0 && (
             <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+              {shouldShowLayoutControls && (
+                <div className="flex items-center gap-1 rounded-lg border border-foreground/10 bg-background/60 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPlannerLayoutPreference("stacked")}
+                    className={[
+                      "rounded-md px-2 py-1 text-xs font-medium transition",
+                      plannerLayoutPreference === "stacked"
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    Stacked
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPlannerLayoutPreference("side-by-side")}
+                    className={[
+                      "rounded-md px-2 py-1 text-xs font-medium transition",
+                      plannerLayoutPreference === "side-by-side"
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    Side by side
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center gap-2 rounded-lg border border-foreground/10 bg-background/60 p-1">
                 <Link
                   to={`/plan?week=${toIsoDate(prevWeek)}`}
@@ -583,13 +645,13 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
           className={
             isDishLibraryCollapsed
               ? "grid gap-2 xl:grid-cols-[56px_minmax(0,1fr)] xl:items-start"
-              : "grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)] xl:items-start"
+              : "grid gap-6 xl:grid-cols-[200px_minmax(0,1fr)] xl:items-start"
           }
         >
           <aside
             className={[
               "hidden overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10 xl:sticky xl:top-6 xl:block",
-              isDishLibraryCollapsed ? "h-[56px] w-[56px] justify-self-start p-2" : "w-full justify-self-start p-2 xl:w-[300px]",
+              isDishLibraryCollapsed ? "h-[56px] w-[56px] justify-self-start p-2" : "w-full justify-self-start p-2 xl:w-[200px]",
             ].join(" ")}
           >
             <div
@@ -672,7 +734,7 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
             )}
           </aside>
 
-          <div className="flex flex-col gap-3">
+          <div className={"flex flex-col gap-3"}>
             {days.map((date, i) => {
               const isToday = date === todayIso;
               const isExpanded = !isMobileViewport || mobileExpandedDay === date;
@@ -697,8 +759,9 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                 <div
                   key={date}
                   className={
-                    "rounded-2xl bg-card p-4 ring-1 transition " +
-                    (isExpanded ? "ring-foreground/30 shadow-sm" : "ring-foreground/10")
+                    "min-w-0 bg-card p-2 transition " +
+                    (isExpanded ? "ring-foreground/30 shadow-sm" : "ring-foreground/10") +
+                    (isToday ? " ring-1" : " ring-0")
                   }
                 >
                   <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -719,7 +782,12 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                       <span className="font-heading font-medium">
                         {DAY_LABELS[i]}
                       </span>
-                      <span className="text-xs text-muted-foreground">
+                      {/* {isToday && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Today
+                          </span>
+                        )} */}
+                      <span className={`text-xs text-muted-foreground`}>
                         {new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
@@ -728,32 +796,42 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                       </span>
                     </div>
 
-                    {!isMobileViewport && holidayFeatureEnabled && holidaysByDate[date] && (
+                    {/* Add additional meal for the day */}
+                    <div className={`flex ${isMobileViewport ? 'justify-end' : 'justify-start'}`}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addMealSlot(date);
+                        }}
+                        className="inline-flex items-center w-fit max-h-[20px] rounded-full border border-foreground/10 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition hover:border-violet-400 hover:text-foreground"
+                      >
+                        Add meal
+                      </button>
+                    </div>
+
+                    {/* {!isMobileViewport && holidayFeatureEnabled && holidaysByDate[date] && (
                       <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                         {holidaysByDate[date]}
                       </span>
-                    )}
+                    )} */}
 
-                    {isMobileViewport && <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleDayToggle}
-                        aria-label="Minimize day card"
-                        className="inline-flex size-6 items-center justify-center rounded-full bg-background text-muted-foreground transition hover:text-foreground"
-                      >
-                        {isExpanded ? <ChevronUp className="size-4.5" /> : <ChevronDown className="size-4.5" />}
-                      </button>
-                      {isToday && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Today
-                        </span>
-                      )}
-                    </div>
-                    }
+                    {!shouldShowDaysSideBySide && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleDayToggle}
+                          aria-label="Minimize day card"
+                          className="inline-flex size-6 items-center justify-center rounded-full bg-background text-muted-foreground transition hover:text-foreground"
+                        >
+                          {isExpanded ? <ChevronUp className="size-4.5" /> : <ChevronDown className="size-4.5" />}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {!isMobileViewport || isExpanded ? (
-                    <div className="grid gap-2 sm:grid-cols-3">
+                    <div className={"flex flex-cols-3 gap-2 justify-start"}>
                       {ensureSlotsForDate(date).map((slot) => (
                         <PlanCell
                           key={`${date}-${slot}`}
@@ -765,18 +843,6 @@ export default function Plan({ loaderData }: Route.ComponentProps) {
                           onRemoveSlot={() => removeMealSlot(date, slot)}
                         />
                       ))}
-                      <div className={`flex ${isMobileViewport ? 'justify-end' : 'justify-start'}`}>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            addMealSlot(date);
-                          }}
-                          className="inline-flex items-center w-fit max-h-[20px] rounded-full border border-foreground/10 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition hover:border-violet-400 hover:text-foreground"
-                        >
-                          Add meal
-                        </button>
-                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -982,137 +1048,127 @@ function PlanCell({ date, slot, meal, dishes, onRenameSlot, onRemoveSlot }: Cell
         )}
       </div>
 
-      {assignedDishIds.length === 0 ? (
-        <div className="mt-3">
-          {!isAddDishOpen ? (
-            <button
-              type="button"
-              onClick={() => setIsAddDishOpen(true)}
-              className="flex max-h-[120px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-foreground/10 bg-background/40 px-3 py-4 text-center text-muted-foreground transition hover:border-violet-300 hover:bg-violet-50/40 hover:text-foreground dark:hover:bg-violet-950/20"
-            >
-              {/* <span className="text-xl font-light text-foreground/70">+</span> */}
-              <span className="mt-1 hidden text-[12px] font-medium leading-tight tracking-tight text-foreground/70 sm:block">
-                Drag a dish here
-              </span>
-              <span className="mt-0.5 text-[12px] italic text-foreground/50 sm:hidden">
-                + Add dish
-              </span>
-              <span className="mt-0.5 hidden text-[12px] italic text-foreground/50 sm:block">
-                or click to add
-              </span>
-            </button>
-          ) : (
-            <div className="space-y-2 rounded-2xl border border-foreground/10 bg-background/80 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Add dish
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddDishOpen(false);
-                    setDishSearch("");
-                  }}
-                  aria-label="Close dish search"
-                  className="inline-flex size-6 items-center justify-center rounded-full border border-foreground/10 bg-background text-muted-foreground transition hover:text-foreground"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-              <input
-                type="text"
-                value={dishSearch}
-                onChange={(event) => setDishSearch(event.target.value)}
-                placeholder="Search dishes"
-                autoFocus
-                className="w-full rounded-md border border-foreground/10 bg-background px-2 py-1.5 text-sm outline-none focus:border-violet-400"
-              />
-              <div className="max-h-40 space-y-1 overflow-y-auto">
-                {filteredDishes.length === 0 ? (
-                  <div className="space-y-2 px-2 py-1">
-                    <div className="text-xs text-muted-foreground">No matching dishes</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsAddDishOpen(false);
-                        setDishSearch("");
-                        setIsNewDishDrawerOpen(true);
-                      }}
-                      className="inline-flex w-full items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200"
-                    >
-                      Missing a dish? Add a new one.
-                    </button>
-                  </div>
-                ) : (
-                  filteredDishes.map((dish) => (
-                    <button
-                      key={dish.id}
-                      type="button"
-                      onClick={() => addDish(dish.id)}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left transition hover:border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-                    >
-                      <span className="truncate text-sm font-medium">{dish.name}</span>
-                      {dish.cuisine && (
-                        <span className="shrink-0 text-[10px] text-muted-foreground">{dish.cuisine}</span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="mt-2 space-y-2">
-          {assignedDishIds.map((dishId) => {
-            const dish = dishes.find((d) => d.id === dishId);
-            if (!dish) return null;
+      <div className="mt-2 space-y-2">
+        {assignedDishIds.length > 0 && (
+          <>
+            {assignedDishIds.map((dishId) => {
+              const dish = dishes.find((d) => d.id === dishId);
+              if (!dish) return null;
 
-            return (
-              <div
-                key={`${date}-${slot}-${dish.id}`}
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", dish.id);
-                  event.dataTransfer.setData("application/x-dish-id", dish.id);
-                  event.dataTransfer.setData("application/x-source-date", date);
-                  event.dataTransfer.setData("application/x-source-slot", slot);
-                  event.dataTransfer.setData("application/x-source-dish-id", dish.id);
-                  event.currentTarget.classList.add("opacity-40", "scale-[0.98]");
-                }}
-                onDragEnd={(event) => {
-                  event.currentTarget.classList.remove("opacity-40", "scale-[0.98]");
-                }}
-                className="flex items-start justify-between gap-2 rounded-lg border border-foreground/10 bg-background/80 p-2 transition duration-150"
-              >
-                <div className="min-w-0 flex-1">
-                  {dish.name}
+              return (
+                <div
+                  key={`${date}-${slot}-${dish.id}`}
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", dish.id);
+                    event.dataTransfer.setData("application/x-dish-id", dish.id);
+                    event.dataTransfer.setData("application/x-source-date", date);
+                    event.dataTransfer.setData("application/x-source-slot", slot);
+                    event.dataTransfer.setData("application/x-source-dish-id", dish.id);
+                    event.currentTarget.classList.add("opacity-40", "scale-[0.98]");
+                  }}
+                  onDragEnd={(event) => {
+                    event.currentTarget.classList.remove("opacity-40", "scale-[0.98]");
+                  }}
+                  className="flex items-start justify-between gap-2 rounded-lg border border-foreground/10 bg-background/80 p-2 transition duration-150"
+                >
+                  <div className="min-w-0 flex-1">
+                    {dish.name}
+                  </div>
+                  <Form method="post" onSubmit={(event) => {
+                      const ok = window.confirm(`Are you sure you want to remove "${dish.name}"?`);
+                      if (!ok) {
+                        event.preventDefault();
+                      }
+                    }}>
+                    <input type="hidden" name="intent" value="remove" />
+                    <input type="hidden" name="meal_date" value={date} />
+                    <input type="hidden" name="meal_slot" value={slot} />
+                    <input type="hidden" name="dish_id" value={dish.id} />
+                    <button
+                      type="submit"
+                      aria-label={`Remove ${dish.name}`}
+                      className="cursor-pointer text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </Form>
                 </div>
-                <Form method="post" onSubmit={(event) => {
-                    
-                    const ok = window.confirm(`Are you sure you want to remove "${dish.name}"?`);
-                    if (!ok) {
-                      event.preventDefault();
-                    }
-                  }}>
-                  <input type="hidden" name="intent" value="remove" />
-                  <input type="hidden" name="meal_date" value={date} />
-                  <input type="hidden" name="meal_slot" value={slot} />
-                  <input type="hidden" name="dish_id" value={dish.id} />
-                  <button
-                    type="submit"
-                    aria-label={`Remove ${dish.name}`}
-                    className="cursor-pointer text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </Form>
+              );
+            })}
+          </>
+        )}
+
+        {!isAddDishOpen ? (
+          <button
+            type="button"
+            onClick={() => setIsAddDishOpen(true)}
+            className="flex max-h-[120px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-foreground/10 bg-background/40 px-3 py-4 text-center text-muted-foreground transition hover:border-violet-300 hover:bg-violet-50/40 hover:text-foreground dark:hover:bg-violet-950/20"
+          >
+            <Plus className="size-5" />
+          </button>
+        ) : (
+          <div className="space-y-2 rounded-2xl border border-foreground/10 bg-background/80 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Add dish
               </div>
-            );
-          })}
-        </div>
-      )}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddDishOpen(false);
+                  setDishSearch("");
+                }}
+                aria-label="Close dish search"
+                className="inline-flex size-6 items-center justify-center rounded-full border border-foreground/10 bg-background text-muted-foreground transition hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={dishSearch}
+              onChange={(event) => setDishSearch(event.target.value)}
+              placeholder="Search dishes"
+              autoFocus
+              className="w-full rounded-md border border-foreground/10 bg-background px-2 py-1.5 text-sm outline-none focus:border-violet-400"
+            />
+            <div className="max-h-40 space-y-1 overflow-y-auto">
+              {filteredDishes.length === 0 ? (
+                <div className="space-y-2 px-2 py-1">
+                  <div className="text-xs text-muted-foreground">No matching dishes</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddDishOpen(false);
+                      setDishSearch("");
+                      setIsNewDishDrawerOpen(true);
+                    }}
+                    className="inline-flex w-full items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200"
+                  >
+                    Missing a dish? Add a new one.
+                  </button>
+                </div>
+              ) : (
+                filteredDishes.map((dish) => (
+                  <button
+                    key={dish.id}
+                    type="button"
+                    onClick={() => addDish(dish.id)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left transition hover:border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                  >
+                    <span className="truncate text-sm font-medium">{dish.name}</span>
+                    {dish.cuisine && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{dish.cuisine}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {isNewDishDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]">
